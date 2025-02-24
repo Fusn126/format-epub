@@ -46,6 +46,7 @@ def write_epub_style(epub_path: str) -> None:
             style_item.content = style_content + "\n" + new_style
             print(f"在现有CSS中添加样式: {style_item.file_name}")
         else:
+            print("未找到style.css，创建新的CSS文件。")
             # 创建新的CSS文件
             style_item = epub.EpubItem(
                 uid="style",
@@ -58,17 +59,16 @@ def write_epub_style(epub_path: str) -> None:
             # 在所有HTML文件中注册CSS
             for item in book.get_items():
                 if isinstance(item, epub.EpubHtml):
-                    if style_item.file_name not in item.add_link(
-                        href=style_item.file_name, rel="stylesheet", type="text/css"
-                    ):
-                        item.add_link(
-                            href=style_item.file_name, rel="stylesheet", type="text/css"
-                        )
-
-        change_epub_html(book, epub_path, fit_class)
-
+                    soup = BeautifulSoup(item.content, "lxml")
+                    link = soup.new_tag("link", href="../Styles/style.css", rel="stylesheet", type="text/css")
+                    soup.head.append(link)
+                    item.content = str(soup).encode('utf-8')
+                
     except Exception as e:
-        print(f"处理 {epub_path} EPUB时出错: {str(e)}")
+        print(f"处理 {epub_path} 时出错: {str(e)}")
+        return
+    
+    change_epub_html(book, epub_path, fit_class)
 
 
 def change_epub_html(book: epub.EpubBook, epub_path: str, style_class: str) -> None:
@@ -84,7 +84,7 @@ def change_epub_html(book: epub.EpubBook, epub_path: str, style_class: str) -> N
             if isinstance(item, epub.EpubHtml):
                 # 使用html.parser而不是lxml解析器,避免产生额外的换行符
                 modified = False
-                soup = BeautifulSoup(item.content, "html5lib")
+                soup = BeautifulSoup(item.content, "lxml")
 
                 # 处理所有图片标签
                 for img in soup.find_all("img"):
@@ -105,12 +105,13 @@ def change_epub_html(book: epub.EpubBook, epub_path: str, style_class: str) -> N
                         modified = True
 
                 if modified:
-                    item.content = soup.prettify(formatter="minimal").encode()
-
-        write_epub(book, epub_path)
+                    item.content = str(soup).encode('utf-8')
 
     except Exception as e:
         print(f"处理 {epub_path} HTML时出错: {str(e)}")
+        return e
+
+    write_epub(book, epub_path)
 
 
 def write_epub(book: epub.EpubBook, epub_path: str) -> None:
@@ -122,6 +123,7 @@ def write_epub(book: epub.EpubBook, epub_path: str) -> None:
     for x in range(0, len(file_list)):
         item = input_archive.open(file_list[x])
         content = item.read()
+        modified = False
 
         if file_list[x].filename.endswith(".xhtml") or file_list[x].filename.endswith(
             ".css"
@@ -130,9 +132,26 @@ def write_epub(book: epub.EpubBook, epub_path: str) -> None:
             for item in book.get_items():
                 if item.file_name in file_list[x].filename:
                     output_archive.writestr(file_list[x].filename, item.content)
+                    if item.file_name == "Styles/style.css":
+                        modified = True
         else:
             # For the other file types, simply copy the original content:
             output_archive.writestr(file_list[x].filename, content)
+
+    if not modified:
+        # 写入style.css
+        for item in book.get_items():
+            if item.file_name == "Styles/style.css":
+                output_archive.writestr("OEBPS/Styles/style.css", item.content)
+        epub.write_epub("temp.epub", book)
+        opf_message_input_archive = zipfile.ZipFile("temp.epub", "r")
+        file_list = opf_message_input_archive.infolist()
+        for x in range(0, len(file_list)):
+            item = opf_message_input_archive.open(file_list[x])
+            content = item.read()
+            if file_list[x].filename.endswith(".opf"):
+                output_archive.writestr("OEBPS/content.opf", content) 
+        opf_message_input_archive.close()
 
     input_archive.close()
     output_archive.close()
@@ -153,10 +172,16 @@ def main() -> None:
     # 处理每个epub文件
     for i, epub_file in enumerate(epub_files, 1):
         print(f"\n处理进度: {i}/{total}")
-        epub_name = str(epub_file)
-        output_name = epub_name + ".temp"
-        write_epub_style(epub_name)
+        try:
+            epub_name = str(epub_file)
+            output_name = epub_name + ".temp"
+            write_epub_style(epub_name)
+        except Exception as e:
+            print(f"处理 {epub_name} 时出错: {str(e)}")
+            continue
+        
         os.remove(epub_name)
+        os.remove("temp.epub")
         os.rename(output_name, epub_name)
 
 

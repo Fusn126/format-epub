@@ -1,4 +1,3 @@
-import os
 import re
 from pathlib import Path
 from ebooklib import epub
@@ -6,7 +5,11 @@ from bs4 import BeautifulSoup
 import random
 import string
 import zipfile
-import time
+import os
+import warnings
+from bs4.builder import XMLParsedAsHTMLWarning
+
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 
 def write_epub_style(epub_path: str) -> None:
@@ -52,35 +55,23 @@ def write_epub_style(epub_path: str) -> None:
             )
             # 将CSS文件添加到epub中
             book.add_item(style_item)
+            # 在所有HTML文件中注册CSS
+            for item in book.get_items():
+                if isinstance(item, epub.EpubHtml):
+                    if style_item.file_name not in item.add_link(
+                        href=style_item.file_name, rel="stylesheet", type="text/css"
+                    ):
+                        item.add_link(
+                            href=style_item.file_name, rel="stylesheet", type="text/css"
+                        )
 
-        output_name = epub_path + ".temp"
-        input_archive = zipfile.ZipFile(epub_path, "r")
-        output_archive = zipfile.ZipFile(output_name, "w")
-        file_list = input_archive.infolist()
-
-        for x in range(0, len(file_list)):
-            item = input_archive.open(file_list[x])
-            content = item.read()
-            
-            if file_list[x].filename.endswith(".xhtml") or file_list[x].filename.endswith(".css"):
-                #Do any 'modification' you like, and write to the XHTML file:
-                for item in book.get_items():
-                    if item.file_name in file_list[x].filename:
-                        output_archive.writestr(file_list[x].filename, item.content)
-            else:
-                #For the other file types, simply copy the original content:
-                output_archive.writestr(file_list[x].filename, content)
-
-        input_archive.close()
-        output_archive.close()
-    
+        change_epub_html(book, epub_path, fit_class)
 
     except Exception as e:
         print(f"处理 {epub_path} EPUB时出错: {str(e)}")
 
 
-
-def change_epub_html(epub_path: str, style_class: str) -> None:
+def change_epub_html(book: epub.EpubBook, epub_path: str, style_class: str) -> None:
     """
     修改epub中的HTML文件,调整图片样式
 
@@ -89,18 +80,11 @@ def change_epub_html(epub_path: str, style_class: str) -> None:
         style_class: 要应用的CSS类名
     """
     try:
-        book = epub.read_epub(epub_path)
-        print(f"\n正在读取html: {epub_path}")
-        print("-" * 50)
-
-        modified = False
         for item in book.get_items():
             if isinstance(item, epub.EpubHtml):
                 # 使用html.parser而不是lxml解析器,避免产生额外的换行符
-                soup = BeautifulSoup(item.content, "html5lib") 
-                print(soup)
-                head = soup.find('head')
-                print(head)
+                modified = False
+                soup = BeautifulSoup(item.content, "html5lib")
 
                 # 处理所有图片标签
                 for img in soup.find_all("img"):
@@ -108,11 +92,13 @@ def change_epub_html(epub_path: str, style_class: str) -> None:
                     for attr in ("width", "height"):
                         if img.has_attr(attr):
                             del img[attr]
+                            modified = True
 
                     # 添加自适应类
                     img_classes = img.get("class", [])
                     if isinstance(img_classes, str):
                         img_classes = [img_classes]
+                        modified = True
                     if style_class not in img_classes:
                         img_classes.append(style_class)
                         img["class"] = img_classes
@@ -121,9 +107,35 @@ def change_epub_html(epub_path: str, style_class: str) -> None:
                 if modified:
                     item.content = soup.prettify(formatter="minimal").encode()
 
+        write_epub(book, epub_path)
 
     except Exception as e:
         print(f"处理 {epub_path} HTML时出错: {str(e)}")
+
+
+def write_epub(book: epub.EpubBook, epub_path: str) -> None:
+    output_name = epub_path + ".temp"
+    input_archive = zipfile.ZipFile(epub_path, "r")
+    output_archive = zipfile.ZipFile(output_name, "w")
+    file_list = input_archive.infolist()
+
+    for x in range(0, len(file_list)):
+        item = input_archive.open(file_list[x])
+        content = item.read()
+
+        if file_list[x].filename.endswith(".xhtml") or file_list[x].filename.endswith(
+            ".css"
+        ):
+            # Do any 'modification' you like, and write to the XHTML file:
+            for item in book.get_items():
+                if item.file_name in file_list[x].filename:
+                    output_archive.writestr(file_list[x].filename, item.content)
+        else:
+            # For the other file types, simply copy the original content:
+            output_archive.writestr(file_list[x].filename, content)
+
+    input_archive.close()
+    output_archive.close()
 
 
 def main() -> None:
@@ -141,10 +153,12 @@ def main() -> None:
     # 处理每个epub文件
     for i, epub_file in enumerate(epub_files, 1):
         print(f"\n处理进度: {i}/{total}")
-        write_epub_style(str(epub_file))
-        output_name = str(epub_file) + ".temp"
-        os.remove(epub_file)
-        os.rename(output_name, epub_file)
+        epub_name = str(epub_file)
+        output_name = epub_name + ".temp"
+        write_epub_style(epub_name)
+        os.remove(epub_name)
+        os.rename(output_name, epub_name)
+
 
 if __name__ == "__main__":
     main()

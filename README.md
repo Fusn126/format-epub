@@ -22,7 +22,12 @@ pip install -r requirements.txt
 2. 运行用户界面:
 
 ```bash
+# 默认处理项目根目录的EPUB文件
 python setup.py
+
+# 指定目录处理EPUB文件
+python setup.py -d /path/to/epub/files
+python setup.py --dir "C:\Books\EPUB"
 ```
 
 3. 按照菜单提示选择功能:
@@ -31,6 +36,22 @@ python setup.py
    - 选择 `3`: 完整处理 (先改变标签，再自适应)
    - 选择 `4`: 查看当前目录的EPUB文件
    - 选择 `5`: 退出
+
+### 方法1.5: 命令行直接执行(无需交互)
+
+```bash
+# 改变图片标签
+python setup.py -d /path/to/epub/files -a change_tag
+
+# 图片自适应
+python setup.py -d /path/to/epub/files -a resize
+
+# 完整处理(先改变标签,再自适应)
+python setup.py -d /path/to/epub/files -a all
+
+# 查看帮助信息
+python setup.py -h
+```
 
 ### 方法2: 直接运行脚本
 
@@ -67,10 +88,19 @@ format-epub/
 └── .gitignore                  # Git忽略文件
 ```
 
+## 命令行参数说明
+
+- `-d, --dir`: 指定EPUB文件所在的目录路径(可选,默认为项目根目录)
+- `-a, --action`: 直接执行指定操作,跳过交互式菜单
+  - `change_tag`: 改变图片标签
+  - `resize`: 图片自适应
+  - `all`: 完整处理
+- `-h, --help`: 显示帮助信息
+
 ## 注意事项
 
-1. 请将需要处理的EPUB文件放在项目根目录中
-2. 脚本会自动处理当前目录下的所有.epub文件
+1. 默认处理项目根目录中的EPUB文件,也可以通过`-d`参数指定其他目录
+2. 脚本会自动处理指定目录下的所有.epub文件
 3. 处理过程中会创建临时文件，完成后会自动清理
 4. 建议在处理前备份原始EPUB文件
 
